@@ -297,8 +297,14 @@ class Monitor:
                 del self.connections[key]
                 self.stats["expired"] += 1
 
-    def feed(self, segment):
-        if segment.dport in self.ports:
+    def feed(self, segment, client_key=None):
+        if client_key is not None:
+            forward = (segment.src, segment.sport, segment.dst, segment.dport)
+            reverse = (segment.dst, segment.dport, segment.src, segment.sport)
+            if client_key not in (forward, reverse):
+                raise ValueError("segment does not match selected connection")
+            key, index = client_key, 0 if client_key == forward else 1
+        elif segment.dport in self.ports:
             key = (segment.src, segment.sport, segment.dst, segment.dport)
             index = 0
         elif segment.sport in self.ports:

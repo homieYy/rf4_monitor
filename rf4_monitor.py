@@ -21,18 +21,16 @@ def port_number(value):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="RF4 被动监控：读取流量副本，不代理、不改包、不注入。")
     mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--auto", action="store_true", help="自动识别游戏网卡和端口（默认）")
     mode.add_argument("--list-interfaces", action="store_true", help="列出 Npcap 网卡")
     mode.add_argument("--iface", help="采集网卡编号（从 1 开始）或 Npcap 设备名")
     mode.add_argument("--read", type=Path, metavar="PCAP", help="离线回放 pcap/pcapng，无需 Npcap")
-    parser.add_argument("--port", action="append", type=port_number, help="realtime 端口，可重复；默认 9341 和 9216")
+    parser.add_argument("--port", action="append", type=port_number, help="可选端口限制；手动/离线模式默认 9341 和 9216，自动模式不限端口")
+    parser.add_argument("--process-name", action="append", help="自动模式识别的进程文件名，可重复；默认 rf4_x64.exe、rf4.exe")
     parser.add_argument("--profile", choices=sorted(KNOWN_PROFILES), default="4.0.24799")
     parser.add_argument("--telemetry", default="fish,player,feed", help="遥测类别，如 fish,player 或 none；鱼情事件始终输出")
     parser.add_argument("--jsonl", type=Path, help="保存结构化鱼情/频道事件（不保存认证数据或原始包）")
     args = parser.parse_args(argv)
-    if not (args.list_interfaces or args.iface or args.read):
-        parser.print_help()
-        print("\n首次使用：python rf4_monitor.py --list-interfaces，然后指定 --iface 编号。")
-        return 0
     from rf4_capture import CaptureError, CaptureConsumer, devices, pcap_api, live_capture, read_capture
     event_file = None
     monitor = None
@@ -62,8 +60,11 @@ def main(argv=None):
             consumer = CaptureConsumer(monitor)
             for record in read_capture(args.read):
                 consumer.feed(record)
-        else:
+        elif args.iface:
             live_capture(args.iface, monitor)
+        else:
+            from rf4_auto import auto_capture
+            auto_capture(monitor, names=args.process_name, ports=args.port)
     except KeyboardInterrupt:
         print("\n已停止采集。")
     except (CaptureError, OSError, ImportError, ValueError) as exc:

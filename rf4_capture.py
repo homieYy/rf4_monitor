@@ -226,7 +226,7 @@ def parse_packet(record, ports):
         if len(tcp_bytes) < 20:
             raise CaptureError("truncated TCP header")
         sport, dport, seq, ack = struct.unpack_from("!HHII", tcp_bytes)
-        if sport not in ports and dport not in ports:
+        if ports is not None and sport not in ports and dport not in ports:
             return None
         size = (tcp_bytes[12] >> 4) * 4
         if size < 20 or size > len(tcp_bytes):

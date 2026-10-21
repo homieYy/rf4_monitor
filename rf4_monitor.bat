@@ -2,49 +2,32 @@
 setlocal
 chcp 65001 >nul
 set "PYTHONUTF8=1"
-
-pushd "%~dp0" || (
-    echo [rf4_monitor] Failed to enter script directory.
-    pause
-    exit /b 1
-)
-
-echo [rf4_monitor] Starting RF4 monitor launcher
-echo [rf4_monitor] Passive capture only. Use --list-interfaces then --iface NUMBER.
-echo [rf4_monitor] Npcap admin-only installations require Administrator privileges.
-
+pushd "%~dp0" || exit /b 1
 if exist ".venv\Scripts\python.exe" (
-    echo [rf4_monitor] Using .venv\Scripts\python.exe
-    ".venv\Scripts\python.exe" "rf4_monitor.py" %*
-    goto finish
+    ".venv\Scripts\python.exe" -c "import sys; sys.exit(sys.version_info < (3,10))" >nul 2>nul
+    if not errorlevel 1 (
+        ".venv\Scripts\python.exe" bootstrap.py %*
+        goto finish
+    )
 )
-
-where py >nul 2>nul
+py -3 -c "import sys; sys.exit(sys.version_info < (3,10))" >nul 2>nul
 if not errorlevel 1 (
-    echo [rf4_monitor] Using py -3
-    py -3 "rf4_monitor.py" %*
+    py -3 bootstrap.py %*
     goto finish
 )
-
-where python >nul 2>nul
+python -c "import sys; sys.exit(sys.version_info < (3,10))" >nul 2>nul
 if not errorlevel 1 (
-    echo [rf4_monitor] Using python
-    python "rf4_monitor.py" %*
+    python bootstrap.py %*
     goto finish
 )
-
-echo.
-echo [rf4_monitor] Python 3 was not found.
-echo [rf4_monitor] Install Python 3 first, then run the dependency installer.
-pause
-exit /b 1
-
+echo Please install Python 3.10 or newer, then double-click this file again.
+echo Enable "Add Python to PATH" in the Python installer.
+start "" "https://www.python.org/downloads/windows/"
+set "EXIT_CODE=1"
+goto done
 :finish
 set "EXIT_CODE=%ERRORLEVEL%"
-if not "%EXIT_CODE%"=="0" (
-    echo.
-    echo [rf4_monitor] Launcher exited with code %EXIT_CODE%.
-    pause
-)
+:done
+if not "%EXIT_CODE%"=="0" pause
 popd
 exit /b %EXIT_CODE%
