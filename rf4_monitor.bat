@@ -1,5 +1,7 @@
 @echo off
 setlocal
+chcp 65001 >nul
+set "PYTHONUTF8=1"
 
 pushd "%~dp0" || (
     echo [rf4_monitor] Failed to enter script directory.
@@ -8,7 +10,8 @@ pushd "%~dp0" || (
 )
 
 echo [rf4_monitor] Starting RF4 monitor launcher
-echo [rf4_monitor] Tip: run as Administrator if you need to update the system hosts file or bind 80/443/9216 directly.
+echo [rf4_monitor] Passive capture only. Use --list-interfaces then --iface NUMBER.
+echo [rf4_monitor] Npcap admin-only installations require Administrator privileges.
 
 if exist ".venv\Scripts\python.exe" (
     echo [rf4_monitor] Using .venv\Scripts\python.exe

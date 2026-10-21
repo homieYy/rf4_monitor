@@ -1,229 +1,141 @@
-# RF4 Monitor
+# RF4 Monitor — 被动采集版
 
-RF4 Monitor 是一个 `俄罗斯钓鱼4`游戏的网络流量监控工具，用于本地代理 RF4 的登录 HTTPS 和 realtime TCP 流量，解析游戏业务数据，并在控制台输出更易读的中文信息。
+本 fork 将原项目的 HTTPS/TCP 代理改为 **Npcap 只接收流量副本**。游戏直接连接原服务器，监控结果显示在独立控制台，也可导出 JSONL。
 
-为了不破坏游戏实际体验，本工具仅实现了提前“窥探”当前服务端下发的鱼的信息功能。
+程序不修改 hosts、不安装证书、不改写登录响应、不转发或发送游戏数据、不访问游戏进程内存、不向游戏聊天框注入消息。
 
-## 主要功能
+## 环境与安装
 
-- 自动接管 `api.rf4game.ru` 登录域名
-- 自动解析登录包中的 realtime 服务器地址和端口
-- 自动把登录返回的 realtime 地址改写到本地监听端口
-- 继续代理真实 realtime TCP 业务流量
-- 解析 RF4 应用层协议数据
-- 输出频道鱼获信息
-- 输出自己来鱼、入护提示
-- 输出人物坐标、钓组坐标、搏鱼状态、公共聊天等监控信息
+- Python 3.10 或更新版本。
+- 实时监控：Windows + [Npcap](https://npcap.com/#download)。Npcap 需要单独安装，pip 不会安装驱动。仅安装 Npcap 即可，无需 Wireshark；不要使用旧 WinPcap。
+- 离线回放和自动化测试：无需 Npcap，支持 Windows/Linux。
 
-## 目录文件
+双击 `安装依赖.bat`，或执行：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+## 从旧版迁移
+
+1. 关闭旧代理和游戏。
+2. **手动恢复旧版修改的 hosts**：检查 `C:\Windows\System32\drivers\etc\hosts`，删除旧版 `RF4 MONITOR` / `RF4 MITM CHAT` 托管块，或恢复确认过的备份。也检查是否有手动添加的 `127.0.0.1 api.rf4game.ru` 条目；保留其他应用的配置。
+3. 若域名缓存仍保留旧地址，可手动执行 `ipconfig /flushdns`。
+4. 新版无需原项目的根证书。可在证书管理器中核对并移除当时为旧版导入的证书，不要删除其他证书。
+5. 按下文选网卡并启动采集，看到“采集已就绪”后再启动/重新登录游戏。
+
+本程序不会自动执行上述系统修改。仓库删除了旧证书、hosts 示例和代理启动逻辑，Git 历史仍可查看旧实现。旧 `--set`、`--prepare-only` 等代理选项不再支持。
+
+## 实时监控
+
+```powershell
+.\rf4_monitor.bat --list-interfaces
+.\rf4_monitor.bat --iface 1
+```
+
+将 `1` 替换为实际联网网卡的编号，也可直接传入列表中的 `\Device\NPF_...` 设备名。使用加速器/VPN时，所选接口必须能看到游戏原始 TCP 流，而非隧道外层密文。
+
+默认监控 TCP **9341 和 9216**。原项目的参考数据使用 9341；不同服务区/版本可能不同，可显式指定，重复参数表示多个端口：
+
+```powershell
+.\rf4_monitor.bat --iface 1 --port 9341
+.\rf4_monitor.bat --iface 1 --port 9341 --port 9216 --telemetry none
+.\rf4_monitor.bat --iface 1 --jsonl fish-events.jsonl
+```
+
+- Npcap 若安装为管理员专用模式，需要从管理员终端运行。
+- `--telemetry fish,player,feed` 是默认值。`none` 关闭附加遥测，来鱼、入护响应、频道事件仍输出。
+- JSONL 文件必须尚不存在，防止覆盖以前的记录；只写业务事件，不写认证 token 或原始包。
+- `Ctrl+C` 停止，输出采集统计。没有目标连接时检查网卡、端口和启动时机。
+- 必须捕获连接起始 SYN、双向握手和认证数据；**不支持半途附加到已有连接**。
+
+## 显示内容与准确性边界
+
+保留鱼种中文映射、钓组 ID、鱼 ID、来鱼、入护响应、频道鱼获/聊天及原有坐标/搏鱼遥测。
 
 ```text
-rf4_monitor/
-  rf4_monitor.py        主程序
-  rf4_monitor.bat       Windows 启动脚本
-  安装依赖.bat          Python 依赖安装脚本，使用清华源
-  requirements.txt      Python 依赖列表
-  fish_labels_zh.json   鱼名中文映射
-  reference_defaults.txt 默认网络参考配置
-  rf4_hosts.txt         hosts 示例
-  screenshot/           截图目录
-  certs/                证书目录
-  归档.zip              当前目录打包文件
+【我自己·来鱼】钓组=11111111-2222-3333-4444-555555555555 鱼=鲈鱼 预估重量=262 克
+【我自己·入护响应】钓组=11111111-2222-3333-4444-555555555555 鱼=鲈鱼 重量=270 克
 ```
 
-证书文件：
+以上为合成示例，不是实际游戏采集结果。
+
+- 钓组显示协议提供的 GUID，并不凭空推断它是游戏里的“1号/2号/3号竿”。
+- 来鱼重量沿用原协议的 `weight_hint_raw`，显示为预估重量。
+- 入护响应沿用上游的启发式字段提取。若只找到来鱼缓存重量，会标为预估值；**这不是对服务器成功入护状态的独立验证**。
+- JSONL 的 `weight_source` 为 `setup_hint` 或 `response`，便于区分来源。
+- 坐标/搏鱼遥测保留上游的部分启发式扫描，不应视为经过完整协议文档验证的字段。
+- 目前只包含原项目 `4.0.24799` 协议配置。客户端更新后仍需实测核验。
+
+## 离线回放与无需游戏的演示
+
+读取具有完整连接起始阶段的 pcap 或 pcapng：
+
+```powershell
+.\rf4_monitor.bat --read recording.pcapng --jsonl events.jsonl
+```
+
+没有实际流量时，可生成仅包含虚构地址、标识和认证字符串的离线示例：
+
+```powershell
+.\.venv\Scripts\python.exe -m tests.make_demo demo.pcapng
+.\rf4_monitor.bat --read demo.pcapng --jsonl demo-events.jsonl
+```
+
+示例生成器只写文件，不发送任何包。实际游戏抓包文件可能含认证信息，不应上传；pcap、pcapng、JSONL 已加入 `.gitignore`。
+
+支持经典 pcap 大小端、微秒/纳秒时间戳，以及 pcapng Enhanced Packet Block、多接口和多 section。支持 Ethernet/VLAN、原始 IPv4/IPv6、Linux cooked v1/v2、NULL/LOOP 链路类型。pcapng Simple/旧 Packet Block 暂不支持，请导出为经典 pcap 或 Enhanced Packet Block 格式。
+
+## 工作原理
 
 ```text
-certs/rf4_monitor.crt
-certs/rf4_monitor.key
-certs/rf4_monitor.pem
+游戏客户端 <========== 原有 TCP 连接 ==========> 游戏服务器
+                           |
+                      Npcap 流量副本
+                           |
+                TCP 排序、去重、缺口和连接检查
+                           |
+                原协议握手、双向 RC4、业务拆帧
+                           |
+                 鱼情关联 -> 控制台 / JSONL
 ```
 
-## 安装
+- 按连接和方向维护 TCP 序列号，处理分段、乱序、重传、部分重叠和 32 位回绕。
+- 根据 TCP ACK 依赖安排跨方向交付，避免乱序导致入护响应先于对应请求被解析。
+- 每个方向维护独立 RC4 状态；收到的数据只解密一次，不生成用于转发的密文。
+- TCP ACK/FIN 的处理只发生在监控程序内部，**不会向网络发送 ACK、重传请求或任何业务包**。
+- 发现冲突、截断、采集丢包、缺口超时或协议错误后停止解析相应连接，等待新 SYN；不跳过密文或猜测恢复状态。
+- 采集丢包统计每秒检查一次。丢包发现前已经输出的事件不会自动撤回，出现警告时不能认为该时段的事件完整。
+- 默认最多保留 32 条连接、每方向 1 MiB 乱序数据/2048 片段和 64 KiB 已交付历史；每方向协议缓冲 2 MiB；每个业务关联缓存 1024 项。缓存驱逐会给出提示。
+- TCP 缺口/跨方向等待超过 10 秒、协议握手超过 30 秒会停止解析；空闲 120 秒清理连接。
+- 超出历史窗口的旧重传只忽略已交付部分，不保证检测其内容冲突。
+- 当前不重组 IP 分片。采集层发现无法安全归属的截断/分片时，会保守停止当前活动连接的解析。校验和不用于判断丢包，因为网卡 checksum offload 可能让本地副本的校验和尚未完成。
 
-### 1. 安装 Python 3
+实时捕获使用非混杂模式和 IP/VLAN 捕获过滤器，再在本地按端口筛选，以免端口级过滤漏掉分片或 IPv6 扩展头。它不会保存其他流量内容。此策略仍有 CPU/驱动开销，不能宣称零影响或不会被反作弊识别。
 
-安装 Python 3.9 或更高版本。Windows 安装时建议勾选：
+## 测试
 
-```text
-Add Python to PATH
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-安装完成后，打开 `cmd` 检查：
+测试包括独立 RC4 已知向量、双鱼竿关联、入护重量来源、频道发送者关联、坐标、随机拆分/双向乱序/重传、序列回绕、半关闭/RST、截断文件、pcap/pcapng、IPv4/IPv6/VLAN、Npcap 接口模拟、驱动丢包报告及禁止主动传输 API 的结构检查。
 
-```bat
-py -3 --version
-pip3 --version
-```
+GitHub Actions 在 Windows/Linux 和 Python 3.10/3.13 上运行离线测试及演示回放。模拟测试不等于真实驱动测试；本次改造尚未在真实 RF4 会话上验证，也没有反作弊兼容性或允许使用的保证。
 
-如果命令不存在，重新安装 Python，并确认已勾选 `Add Python to PATH`。
+退出码：`0` 正常处理；`1` 参数外的运行/文件/依赖错误；`2` 数据不完整、半途捕获、未发现目标连接，或 argparse 参数错误。
 
-### 2. 安装 Python 依赖
+## 文件职责
 
-进入工具目录：
+| 文件 | 职责 |
+|---|---|
+| `rf4_monitor.py` | 参数、控制台和 JSONL 生命周期 |
+| `rf4_capture.py` | Npcap 只读 API、严格的 pcap/pcapng 读取和链路解析 |
+| `rf4_stream.py` | TCP 重组、连接生命周期、RF4 握手和解密 |
+| `rf4_protocol.py` | 从上游抽出的二进制协议解析 |
+| `rf4_events.py` | 鱼情关联与中文显示 |
+| `tests/` | 合成流量、自动化测试和离线演示生成器 |
 
-```bat
-cd /d tools\rf4_monitor
-```
-
-双击运行：
-
-```text
-安装依赖.bat
-```
-
-也可以手动执行：
-
-```bat
-pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-```
-
-当前依赖主要是：
-
-```text
-mitmproxy>=9,<10
-```
-
-### 3. 导入自签证书
-
-RF4 登录 HTTPS 流量需要本地证书。证书文件位于：
-
-```text
-certs\rf4_monitor.crt
-```
-
-如果 `certs\rf4_monitor.crt` 不存在，先运行一次：
-
-```bat
-rf4_monitor.bat --prepare-only
-```
-
-导入方式一：图形界面导入
-
-1. 双击 `certs\rf4_monitor.crt`
-2. 点击 `安装证书`
-3. 选择 `本地计算机`
-4. 选择 `将所有的证书都放入下列存储`
-5. 选择 `受信任的根证书颁发机构`
-6. 完成导入
-
-导入方式二：管理员命令导入
-
-```bat
-certutil -addstore Root certs\rf4_monitor.crt
-```
-
-证书导入后，再以管理员身份运行 `rf4_monitor.bat`。
-
-## 启动
-
-1. 关闭 RF4
-2. 右键以管理员身份运行 `rf4_monitor.bat`
-3. 等待控制台出现监听信息
-4. 启动 RF4 并登录游戏
-5. 在控制台查看解析结果
-
-管理员权限通常是必须的，因为程序需要：
-
-- 修改 Windows hosts
-- 监听 `443` 和 realtime 业务端口
-
-## 默认行为
-
-正常启动时不需要额外参数。程序会自动完成：
-
-- 扫描参考流量，提取 RF4 域名和 realtime 地址
-- 使用 `reference_defaults.txt` 作为兜底网络配置
-- 更新 Windows hosts
-- 准备本地证书
-- 启动 mitmdump
-- 监听登录 HTTPS 端口
-- 监听 realtime TCP 端口
-- 改写登录包里的 realtime 地址
-- 解析并打印业务数据
-
-## 输出示例
-
-```text
-feide3383 钓到了 63 克 欧鲌
-RF4-3D 记录[底钓] 钓到了 1.384 公斤 金眼狼鲈
-【我自己】： 有鲈鱼 262 克 过来了
-人物坐标 =(368.702,16.208,444.658)
-钓鱼过程位置上报 | 钓组=497bae49... 钓组坐标=(-132.041,0.597,-55.398)
-```
-
-默认不会输出下面这类协议调试前缀：
-
-```text
-[RF4业务/钓鱼] 客户端->服务器 请求#40 协议14/7
-```
-
-## 截图
-
-![RF4 Monitor 控制台输出](screenshot/1.png)
-
-## 常用命令
-
-关闭业务遥测，只看鱼获和自己来鱼：
-
-```bat
-rf4_monitor.bat --set rf4_log_telemetry=false
-```
-
-只看钓鱼相关信息：
-
-```bat
-rf4_monitor.bat --set rf4_telemetry_categories=fish
-```
-
-只更新 hosts：
-
-```bat
-py -3 rf4_monitor.py --update-hosts-only
-```
-
-
-## hosts
-
-Windows hosts 路径：
-
-```text
-C:\Windows\System32\drivers\etc\hosts
-```
-
-最小示例：
-
-```text
-127.0.0.1 api.rf4game.ru
-```
-
-程序会自动维护 `RF4 MONITOR` 托管块，并在修改前备份原 hosts 文件。
-
-## 常见问题
-
-`Permission denied`
-
-- 请使用管理员身份运行 `rf4_monitor.bat`
-
-`Cannot spawn multiple servers on the same address: *:443`
-
-- `443` 端口已被占用
-- 关闭占用程序或检查是否重复启动了 RF4 Monitor
-
-启动后只监听 `8080`
-
-- 没有提取到 RF4 域名或 realtime 地址
-- 确认 `reference_defaults.txt` 存在
-- 确认当前目录文件完整
-
-能登录但没有业务解析输出
-
-- 确认登录日志里出现 `rewrote login realtime target`
-- 确认 realtime TCP 连接进入 RF4 Monitor
-- 可临时开启详细日志：
-
-```bat
-rf4_monitor.bat --set rf4_verbose_logging=true
-```
-
-如果游戏版本升级，需要重新确认协议字段、登录返回结构和 realtime 端口。
+原项目：[T3rry7f/rf4_monitor](https://github.com/T3rry7f/rf4_monitor)，协议解析基于提交 `98fee2e85e960e550d36e2465bba31c69e9a3543`。

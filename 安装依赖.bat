@@ -1,19 +1,25 @@
 @echo off
 setlocal
-
-cd /d "%~dp0"
-
-echo [rf4_monitor] Installing full Python dependencies from requirements.txt
-echo [rf4_monitor] Using Tsinghua PyPI mirror: https://pypi.tuna.tsinghua.edu.cn/simple
-
-pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-if errorlevel 1 (
-    echo.
-    echo [rf4_monitor] Dependency install failed.
-    pause
-    exit /b 1
+chcp 65001 >nul
+set "PYTHONUTF8=1"
+pushd "%~dp0" || exit /b 1
+if exist ".venv\Scripts\python.exe" goto install
+where py >nul 2>nul
+if not errorlevel 1 (
+    py -3 -m venv .venv
+) else (
+    python -m venv .venv
 )
-
-echo.
-echo [rf4_monitor] Dependency install completed successfully.
+if errorlevel 1 goto failed
+:install
+".venv\Scripts\python.exe" -m pip install -r requirements.txt
+if errorlevel 1 goto failed
+echo Python dependencies installed. Live capture also requires Npcap from https://npcap.com/
+popd
 pause
+exit /b 0
+:failed
+echo Installation failed. Install Python 3.10 or newer and check your network.
+popd
+pause
+exit /b 1
